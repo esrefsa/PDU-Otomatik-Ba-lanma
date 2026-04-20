@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ATEN PDU Web Panel</title>
+  <style>
+    :root{--bg:#eef3f8;--card:#fff;--line:#d8e0ea;--ink:#10213a;--muted:#5f6f84;--accent:#17355d}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+    .wrap{max-width:1500px;margin:0 auto;padding:18px}
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 8px 24px rgba(16,33,58,.08)}
+    .title{margin:0 0 8px}
+    .muted{color:var(--muted);margin:0 0 12px}
+    .filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;margin-bottom:12px}
+    input,select,button{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line)}
+    button{cursor:pointer;background:var(--accent);color:#fff;border:none}
+    .secondary{background:#edf3fb;color:var(--ink);border:1px solid var(--line)}
+    .layout{display:grid;grid-template-columns:1.45fr .8fr;gap:12px}
+    .table-wrap{max-height:78vh;overflow:auto;border:1px solid var(--line);border-radius:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{padding:8px 10px;border-bottom:1px solid #ecf1f6;text-align:left}
+    thead th{position:sticky;top:0;background:#f4f7fb;z-index:1}
+    tbody tr{cursor:pointer}
+    tbody tr:hover{background:#f8fbff}
+    tbody tr.active{background:#e8f1ff}
+    .tag{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700}
+    .in{background:#eaf6ef;color:#1f6b3b}.out{background:#fff0f0;color:#a12222}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#f8fbff;border:1px solid var(--line);padding:12px;border-radius:12px;min-height:130px}
+    @media (max-width:1000px){.layout{grid-template-columns:1fr}.filters{grid-template-columns:1fr 1fr}.filters button{grid-column:1/-1}}
+    @media (max-width:700px){.filters{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel" style="margin-bottom:12px">
+      <h2 class="title">ATEN PDU Web Panel</h2>
+      <p class="muted">Varsayılan web kullanıcı bilgisi <b>administrator / password</b>. Satıra tek tıklayınca cihaz yeni pencerede açılır.</p>
+      <div class="filters">
+        <input id="searchInput" placeholder="Gişe, ID, IP, kanal ara" />
+        <select id="kesimFilter"></select>
+        <select id="tipFilter">
+          <option value="Tümü">Tip: Tümü</option>
+          <option value="Giriş">Giriş</option>
+          <option value="Çıkış">Çıkış</option>
+        </select>
+        <button class="secondary" id="clearBtn">Filtreyi Temizle</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Kesim</th><th>ID</th><th>Gişe Adı</th><th>Tip</th><th>Kanal</th><th>PDU IP</th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0">Seçili PDU</h3>
+        <pre id="deviceInfo">Listeden bir satır seçin.</pre>
+        <div style="margin-top:10px;display:grid;gap:8px">
+          <button id="openWebBtn">Tekrar Web Aç</button>
+          <button class="secondary" id="copyWebBtn">Auth URL Kopyala</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const WEB_USER = "administrator";
+    const WEB_PASS = "password";
+
+    const STATIONS = [
+      { kesim: "KESİM 1", id: "G11", gise: "ANKARA GİŞESİ", subnet: "10.51.11", giris: [101,102,103,104,105,106], cikis: [111,112,113,114,115,116,117,118] },
+      { kesim: "KESİM 1", id: "G12", gise: "KARAGEDİK GİŞESİ", subnet: "10.51.12", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 1", id: "G13", gise: "AHİBOZ GİŞESİ", subnet: "10.51.13", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 1", id: "G14", gise: "EMİRLER GİŞESİ", subnet: "10.51.14", giris: [101,102,103], cikis: [111,112,113,114] },
+      { kesim: "KESİM 1", id: "G15", gise: "KULU-KIRIKKALE GİŞESİ", subnet: "10.51.15", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 1", id: "G16", gise: "ACIKUYU GİŞESİ", subnet: "10.51.16", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 2", id: "G21", gise: "EVREN-SARIYAHŞİ GİŞESİ", subnet: "10.51.21", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 2", id: "G22a", gise: "AĞAÇÖREN GİŞESİ", subnet: "10.51.22", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 2", id: "G22b", gise: "KIRŞEHİR GİŞESİ", subnet: "10.51.122", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 2", id: "G23", gise: "ORTAKÖY GİŞESİ", subnet: "10.51.23", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 2", id: "G24", gise: "ALAYHAN GİŞESİ", subnet: "10.51.24", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 3", id: "G31", gise: "DERİNKUYU GİŞESİ", subnet: "10.51.31", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 3", id: "G32", gise: "GÖLCÜK GİŞESİ", subnet: "10.51.32", giris: [101,102,103,104], cikis: [111,112,113,114] },
+      { kesim: "KESİM 3", id: "G33", gise: "NİĞDE GİŞESİ", subnet: "10.51.33", giris: [101,102,103,104], cikis: [111,112,113,114,115,116] }
+    ];
+
+    function buildDevices() {
+      const list = [];
+      for (const s of STATIONS) {
+        s.giris.forEach((octet, i) => list.push({
+          key: `${s.id}-${octet}`,
+          kesim: s.kesim,
+          id: s.id,
+          gise: s.gise,
+          tip: "Giriş",
+          kanal: `Giriş ${i + 1}`,
+          ip: `${s.subnet}.${octet}`
+        }));
+        s.cikis.forEach((octet, i) => list.push({
+          key: `${s.id}-${octet}`,
+          kesim: s.kesim,
+          id: s.id,
+          gise: s.gise,
+          tip: "Çıkış",
+          kanal: `Çıkış ${i + 1}`,
+          ip: `${s.subnet}.${octet}`
+        }));
+      }
+      return list;
+    }
+
+    const DEVICES = buildDevices();
+
+    const els = {
+      search: document.getElementById("searchInput"),
+      kesim: document.getElementById("kesimFilter"),
+      tip: document.getElementById("tipFilter"),
+      clear: document.getElementById("clearBtn"),
+      body: document.getElementById("tableBody"),
+      info: document.getElementById("deviceInfo"),
+      openWeb: document.getElementById("openWebBtn"),
+      copyWeb: document.getElementById("copyWebBtn")
+    };
+
+    let selectedKey = DEVICES[0]?.key || null;
+
+    function fillKesimFilter() {
+      const kesimler = ["Tümü", ...new Set(DEVICES.map(x => x.kesim))];
+      els.kesim.innerHTML = kesimler.map(k => `<option value="${k}">${k === "Tümü" ? "Kesim: Tümü" : k}</option>`).join("");
+    }
+
+    function filteredDevices() {
+      const q = els.search.value.trim().toLocaleLowerCase("tr");
+      const kesim = els.kesim.value || "Tümü";
+      const tip = els.tip.value || "Tümü";
+      return DEVICES.filter(item => {
+        const haystack = `${item.kesim} ${item.id} ${item.gise} ${item.tip} ${item.kanal} ${item.ip}`.toLocaleLowerCase("tr");
+        if (q && !haystack.includes(q)) return false;
+        if (kesim !== "Tümü" && item.kesim !== kesim) return false;
+        if (tip !== "Tümü" && item.tip !== tip) return false;
+        return true;
+      });
+    }
+
+    function currentDevice() {
+      return DEVICES.find(x => x.key === selectedKey) || null;
+    }
+
+    function currentWebAuthUrl() {
+      const d = currentDevice();
+      return d ? `http://${encodeURIComponent(WEB_USER)}:${encodeURIComponent(WEB_PASS)}@${d.ip}` : "";
+    }
+
+    function openWebForCurrent() {
+      const url = currentWebAuthUrl();
+      if (!url) return;
+      window.open(url, "_blank");
+    }
+
+    function renderDetail() {
+      const d = currentDevice();
+      if (!d) {
+        els.info.textContent = "Filtreye uygun kayıt bulunamadı.";
+        return;
+      }
+      els.info.textContent =
+`Kesim       : ${d.kesim}
+ID          : ${d.id}
+Gişe        : ${d.gise}
+Tip         : ${d.tip}
+Kanal       : ${d.kanal}
+PDU IP      : ${d.ip}
+Auth URL    : ${currentWebAuthUrl()}`;
+    }
+
+    function renderTable() {
+      const list = filteredDevices();
+      if (!list.find(x => x.key === selectedKey)) selectedKey = list[0]?.key || null;
+
+      els.body.innerHTML = list.map(item => {
+        const active = item.key === selectedKey ? "active" : "";
+        const tagClass = item.tip === "Giriş" ? "in" : "out";
+        return `<tr class="${active}" data-key="${item.key}">
+          <td>${item.kesim}</td>
+          <td>${item.id}</td>
+          <td>${item.gise}</td>
+          <td><span class="tag ${tagClass}">${item.tip}</span></td>
+          <td>${item.kanal}</td>
+          <td>${item.ip}</td>
+        </tr>`;
+      }).join("");
+
+      [...els.body.querySelectorAll("tr")].forEach(tr => {
+        tr.addEventListener("click", () => {
+          selectedKey = tr.dataset.key;
+          renderTable();
+          openWebForCurrent();
+        });
+      });
+
+      renderDetail();
+    }
+
+    async function copyText(text) {
+      if (!text) return;
+      try { await navigator.clipboard.writeText(text); }
+      catch (_) { }
+    }
+
+    function bind() {
+      els.search.addEventListener("input", renderTable);
+      els.kesim.addEventListener("change", renderTable);
+      els.tip.addEventListener("change", renderTable);
+      els.clear.addEventListener("click", () => {
+        els.search.value = "";
+        els.kesim.value = "Tümü";
+        els.tip.value = "Tümü";
+        renderTable();
+      });
+      els.openWeb.addEventListener("click", openWebForCurrent);
+      els.copyWeb.addEventListener("click", () => copyText(currentWebAuthUrl()));
+    }
+
+    fillKesimFilter();
+    bind();
+    renderTable();
+  </script>
+</body>
+</html>
